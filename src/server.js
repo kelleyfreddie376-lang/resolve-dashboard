@@ -2,17 +2,27 @@ require("dotenv").config();
 
 const express = require("express");
 const session = require("express-session");
+const path = require("path");
 const db = require("./database/db");
 
 const app = express();
+
 const PORT = process.env.PORT || 3000;
 
-// =================================
-// APP CONFIG
-// =================================
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI =
+    process.env.REDIRECT_URI ||
+    "http://localhost:3000/auth/discord/callback";
+
+const DISCORD_API = "https://discord.com/api/v10";
+
+if (!CLIENT_ID || !CLIENT_SECRET) {
+    console.warn("⚠️ CLIENT_ID or CLIENT_SECRET is missing from .env");
+}
 
 app.set("view engine", "ejs");
-app.set("views", __dirname + "/views");
+app.set("views", path.join(__dirname, "views"));
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -23,104 +33,158 @@ app.use(
         resave: false,
         saveUninitialized: false,
         cookie: {
-            secure: false,
-            maxAge: 1000 * 60 * 60 * 24
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 1000 * 60 * 60 * 24 * 7
         }
     })
 );
 
-// =================================
-// DISCORD CONFIG
-// =================================
+app.use(express.static(path.join(__dirname, "public")));
 
-const DISCORD_API = "https://discord.com/api/v10";
+/* --------------------------------------------------
+   HELPERS
+-------------------------------------------------- */
 
-const CLIENT_ID = process.env.CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
+async function discordRequest(url, options = {}) {
+    const response = await fetch(url, options);
 
-const REDIRECT_URI =
-    process.env.REDIRECT_URI ||
-    "https://resolve-dashboard.onrender.com/auth/discord/callback";
+    if (!response.ok) {
+        const text = await response.text();
 
-// =================================
-// AUTH
-// =================================
+        throw new Error(
+            `Discord API error ${response.status}: ${text}`
+        );
+    }
+
+    return response.json();
+}
 
 function requireLogin(req, res, next) {
     if (!req.session.user) {
-        return res.redirect("/");
+        return res.redirect("/auth/discord");
     }
 
     next();
 }
 
-// =================================
-// SERVER ACCESS
-// =================================
-
-function getManageableGuild(req, guildId) {
-    const guilds = req.session.guilds || [];
-
-    const guild = guilds.find(
-        (server) => server.id === guildId
-    );
-
-    if (!guild) {
-        return null;
+function getGuildIds(req) {
+    if (!req.session.guilds) {
+        return [];
     }
 
-    try {
-        const permissions = BigInt(guild.permissions);
-
-        const isAdmin =
-            (permissions & 0x8n) === 0x8n;
-
-        const canManageServer =
-            (permissions & 0x20n) === 0x20n;
-
-        if (!isAdmin && !canManageServer) {
-            return null;
-        }
-
-        return guild;
-    } catch {
-        return null;
-    }
+    return req.session.guilds.map((guild) => guild.id);
 }
 
-// =================================
-// HTML ESCAPE
-// =================================
+function hasManageGuild(guild) {
+    const permissions = BigInt(guild.permissions || "0");
+    const MANAGE_GUILD = 1n << 5n;
+
+    return (
+        (permissions & MANAGE_GUILD) === MANAGE_GUILD ||
+        guild.owner === true
+    );
+}
 
 function escapeHtml(value) {
     return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
 }
 
-// =================================
-// HOME
-// =================================
+/* --------------------------------------------------
+   HOME
+-------------------------------------------------- */
 
 app.get("/", (req, res) => {
-    res.render("index");
-});
-
-// =================================
-// DISCORD LOGIN
-// =================================
-
-app.get("/auth/discord", (req, res) => {
-    if (!CLIENT_ID || !CLIENT_SECRET) {
-        return res.status(500).send(`
-            <h1>Resolve Dashboard Error</h1>
-            <p>CLIENT_ID or CLIENT_SECRET is missing from .env</p>
-        `);
+    if (req.session.user) {
+        return res.redirect("/dashboard");
     }
 
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resolve Dashboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f1117;
+            color: #ffffff;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 80px 24px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 52px;
+            margin-bottom: 12px;
+        }
+
+        p {
+            color: #aeb4c0;
+            font-size: 18px;
+            line-height: 1.6;
+        }
+
+        .button {
+            display: inline-block;
+            margin-top: 30px;
+            padding: 14px 24px;
+            border-radius: 10px;
+            background: #5865f2;
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .button:hover {
+            background: #4752c4;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Resolve</h1>
+
+        <p>
+            AI-powered support for Discord.
+        </p>
+
+        <p>
+            Manage your server's support system,
+            knowledge, tickets, and AI settings.
+        </p>
+
+        <a class="button" href="/auth/discord">
+            Login with Discord
+        </a>
+    </div>
+</body>
+</html>
+    `);
+});
+
+/* --------------------------------------------------
+   DISCORD LOGIN
+-------------------------------------------------- */
+
+app.get("/auth/discord", (req, res) => {
     const params = new URLSearchParams({
         client_id: CLIENT_ID,
         response_type: "code",
@@ -133,18 +197,26 @@ app.get("/auth/discord", (req, res) => {
     );
 });
 
-// =================================
-// DISCORD CALLBACK
-// =================================
+/* --------------------------------------------------
+   DISCORD CALLBACK
+-------------------------------------------------- */
 
 app.get("/auth/discord/callback", async (req, res) => {
-    const { code } = req.query;
-
-    if (!code) {
-        return res.status(400).send("Missing Discord OAuth code.");
-    }
-
     try {
+        const { code } = req.query;
+
+        if (!code) {
+            return res.status(400).send("Missing Discord authorization code.");
+        }
+
+        const tokenBody = new URLSearchParams({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: REDIRECT_URI
+        });
+
         const tokenResponse = await fetch(
             `${DISCORD_API}/oauth2/token`,
             {
@@ -153,966 +225,927 @@ app.get("/auth/discord/callback", async (req, res) => {
                     "Content-Type":
                         "application/x-www-form-urlencoded"
                 },
-                body: new URLSearchParams({
-                    client_id: CLIENT_ID,
-                    client_secret: CLIENT_SECRET,
-                    grant_type: "authorization_code",
-                    code,
-                    redirect_uri: REDIRECT_URI
-                })
+                body: tokenBody
             }
         );
+
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+
+            console.error(
+                "Discord token error:",
+                errorText
+            );
+
+            return res
+                .status(500)
+                .send("Discord login failed.");
+        }
 
         const tokenData = await tokenResponse.json();
 
-        if (!tokenResponse.ok) {
-            console.error(
-                "Discord token error:",
-                tokenData
-            );
-
-            return res.status(500).send(`
-                <h1>Discord Login Failed</h1>
-                <p>Could not exchange the OAuth code.</p>
-                <a href="/">Return to Resolve</a>
-            `);
-        }
-
-        const accessToken = tokenData.access_token;
-
-        // -----------------------------
-        // GET DISCORD USER
-        // -----------------------------
-
-        const userResponse = await fetch(
+        const user = await discordRequest(
             `${DISCORD_API}/users/@me`,
             {
                 headers: {
-                    Authorization: `Bearer ${accessToken}`
+                    Authorization:
+                        `Bearer ${tokenData.access_token}`
                 }
             }
         );
 
-        const user = await userResponse.json();
-
-        if (!userResponse.ok) {
-            return res.status(500).send(
-                "Could not retrieve your Discord account."
-            );
-        }
-
-        // -----------------------------
-        // GET DISCORD SERVERS
-        // -----------------------------
-
-        const guildResponse = await fetch(
+        const guilds = await discordRequest(
             `${DISCORD_API}/users/@me/guilds`,
             {
                 headers: {
-                    Authorization: `Bearer ${accessToken}`
+                    Authorization:
+                        `Bearer ${tokenData.access_token}`
                 }
             }
         );
 
-        const guilds = await guildResponse.json();
-
-        if (!guildResponse.ok) {
-            return res.status(500).send(
-                "Could not retrieve your Discord servers."
-            );
-        }
-
         req.session.user = user;
         req.session.guilds = guilds;
-        req.session.accessToken = accessToken;
+        req.session.accessToken = tokenData.access_token;
 
         console.log(
             `✅ Discord login: ${user.username} (${user.id})`
         );
 
         res.redirect("/dashboard");
-
     } catch (error) {
-        console.error("OAuth error:", error);
+        console.error(
+            "❌ Discord callback error:",
+            error
+        );
 
-        res.status(500).send(`
-            <h1>Something went wrong</h1>
-            <p>Unable to complete Discord login.</p>
-            <a href="/">Return to Resolve</a>
-        `);
+        res
+            .status(500)
+            .send("Something went wrong while logging in with Discord.");
     }
 });
 
-// =================================
-// SERVER SELECTION
-// =================================
+/* --------------------------------------------------
+   LOGOUT
+-------------------------------------------------- */
 
-app.get("/dashboard", requireLogin, (req, res) => {
-    const user = req.session.user;
-    const guilds = req.session.guilds || [];
-
-    const manageableGuilds = guilds.filter((guild) => {
-        try {
-            const permissions = BigInt(guild.permissions);
-
-            const isAdmin =
-                (permissions & 0x8n) === 0x8n;
-
-            const canManageServer =
-                (permissions & 0x20n) === 0x20n;
-
-            return isAdmin || canManageServer;
-        } catch {
-            return false;
-        }
+app.get("/logout", (req, res) => {
+    req.session.destroy(() => {
+        res.redirect("/");
     });
+});
 
-    const userAvatar = user.avatar
-        ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=128`
-        : `https://cdn.discordapp.com/embed/avatars/0.png`;
+/* --------------------------------------------------
+   DASHBOARD
+-------------------------------------------------- */
 
-    res.send(`
+app.get("/dashboard", requireLogin, async (req, res) => {
+    try {
+        const guilds = (req.session.guilds || []).filter(
+            hasManageGuild
+        );
+
+        res.send(`
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resolve Dashboard</title>
 
-<title>Servers | Resolve</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
 
-<style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f1117;
+            color: #ffffff;
+        }
 
-* {
-    box-sizing: border-box;
-}
+        header {
+            padding: 18px 24px;
+            border-bottom: 1px solid #252936;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-body {
-    margin: 0;
-    min-height: 100vh;
-    color: #f5f7ff;
-    font-family: Inter, Arial, sans-serif;
+        .brand {
+            font-size: 22px;
+            font-weight: bold;
+        }
 
-    background:
-        radial-gradient(
-            circle at 10% 10%,
-            rgba(124, 92, 255, 0.22),
-            transparent 35%
-        ),
-        radial-gradient(
-            circle at 90% 80%,
-            rgba(0, 200, 255, 0.12),
-            transparent 35%
-        ),
-        #0b0d16;
-}
+        .user {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
 
-.navbar {
-    height: 72px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+        .user img {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+        }
 
-    padding: 0 32px;
+        .logout {
+            color: #ff6b6b;
+            text-decoration: none;
+        }
 
-    background: rgba(17, 20, 34, 0.85);
-    border-bottom: 1px solid rgba(255,255,255,0.08);
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
 
-    backdrop-filter: blur(18px);
-}
+        h1 {
+            margin-bottom: 8px;
+        }
 
-.brand {
-    font-size: 25px;
-    font-weight: 800;
-    letter-spacing: -1px;
-}
+        .subtitle {
+            color: #9ca3af;
+            margin-bottom: 30px;
+        }
 
-.brand span {
-    background: linear-gradient(
-        135deg,
-        #8b7cff,
-        #5de0ff
-    );
+        .servers {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(260px, 1fr));
+            gap: 18px;
+        }
 
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
+        .server {
+            background: #181b24;
+            border: 1px solid #282d3a;
+            border-radius: 14px;
+            padding: 22px;
+        }
 
-.user-area {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
+        .server h2 {
+            margin-top: 0;
+            font-size: 20px;
+        }
 
-.avatar {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    border: 2px solid rgba(139,124,255,0.7);
-}
+        .server p {
+            color: #9ca3af;
+        }
 
-.username {
-    color: #cbd0e0;
-    font-size: 14px;
-}
+        .open {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            background: #5865f2;
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+        }
 
-.logout {
-    margin-left: 12px;
-    padding: 8px 13px;
-
-    color: #ff8f9a;
-    text-decoration: none;
-
-    border-radius: 8px;
-}
-
-.logout:hover {
-    background: rgba(255,80,100,0.1);
-}
-
-.container {
-    max-width: 1150px;
-    margin: auto;
-    padding: 55px 25px;
-}
-
-.eyebrow {
-    color: #8f82ff;
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin-bottom: 10px;
-}
-
-h1 {
-    margin: 0;
-    font-size: 42px;
-    letter-spacing: -1.5px;
-}
-
-.subtitle {
-    color: #969db2;
-    margin-top: 10px;
-    margin-bottom: 38px;
-}
-
-.server-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
-}
-
-.server {
-    position: relative;
-    overflow: hidden;
-
-    background: rgba(21, 24, 40, 0.9);
-
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 18px;
-
-    padding: 23px;
-
-    color: white;
-    text-decoration: none;
-
-    transition:
-        transform 0.2s,
-        border-color 0.2s,
-        box-shadow 0.2s;
-}
-
-.server:hover {
-    transform: translateY(-5px);
-
-    border-color: rgba(139,124,255,0.65);
-
-    box-shadow:
-        0 15px 40px rgba(0,0,0,0.3),
-        0 0 25px rgba(124,92,255,0.1);
-}
-
-.server-top {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
-
-.server-icon {
-    width: 62px;
-    height: 62px;
-    border-radius: 17px;
-    object-fit: cover;
-}
-
-.server-icon-placeholder {
-    width: 62px;
-    height: 62px;
-
-    border-radius: 17px;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    font-size: 25px;
-    font-weight: 800;
-
-    background:
-        linear-gradient(
-            135deg,
-            #7c5cff,
-            #4fc9ff
-        );
-}
-
-.server-name {
-    font-size: 18px;
-    font-weight: 700;
-    word-break: break-word;
-}
-
-.server-status {
-    margin-top: 20px;
-    color: #62e6a8;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.empty {
-    padding: 45px;
-    text-align: center;
-
-    background: rgba(21,24,40,0.9);
-
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 18px;
-
-    color: #9ca3b8;
-}
-
-@media (max-width: 850px) {
-    .server-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (max-width: 600px) {
-
-    .server-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .navbar {
-        padding: 0 18px;
-    }
-
-    .username {
-        display: none;
-    }
-
-    .container {
-        padding: 40px 18px;
-    }
-
-    h1 {
-        font-size: 34px;
-    }
-}
-
-</style>
-
+        .empty {
+            background: #181b24;
+            border: 1px solid #282d3a;
+            border-radius: 14px;
+            padding: 30px;
+            color: #9ca3af;
+        }
+    </style>
 </head>
 
 <body>
 
-<nav class="navbar">
+<header>
+    <div class="brand">Resolve Dashboard</div>
 
-    <div class="brand">
-        <span>R</span>esolve
+    <div class="user">
+        <span>${escapeHtml(req.session.user.username)}</span>
+        <a class="logout" href="/logout">Logout</a>
     </div>
+</header>
 
-    <div class="user-area">
-
-        <img
-            class="avatar"
-            src="${userAvatar}"
-            alt="Discord Avatar"
-        >
-
-        <span class="username">
-            ${escapeHtml(user.global_name || user.username)}
-        </span>
-
-        <a class="logout" href="/logout">
-            Logout
-        </a>
-
-    </div>
-
-</nav>
-
-<main class="container">
-
-    <div class="eyebrow">
-        Resolve Dashboard
-    </div>
-
-    <h1>
-        Choose a server
-    </h1>
+<main>
+    <h1>Your Servers</h1>
 
     <div class="subtitle">
-        Select a Discord server you have permission to manage.
+        Select a Discord server to manage Resolve.
     </div>
 
-    ${
-        manageableGuilds.length === 0
-            ? `
-                <div class="empty">
+    <div class="servers">
+        ${
+            guilds.length
+                ? guilds
+                    .map(
+                        (guild) => `
+                            <div class="server">
+                                <h2>
+                                    ${escapeHtml(guild.name)}
+                                </h2>
 
-                    <h2>
-                        No manageable servers found
-                    </h2>
+                                <p>
+                                    Manage Resolve for this server.
+                                </p>
 
-                    <p>
-                        You need Administrator or Manage Server
-                        permission to configure Resolve.
-                    </p>
-
-                </div>
-            `
-            : `
-                <div class="server-grid">
-
-                    ${manageableGuilds.map((guild) => {
-
-                        const icon = guild.icon
-                            ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`
-                            : null;
-
-                        return `
-                            <a
-                                class="server"
-                                href="/dashboard/server/${guild.id}"
-                            >
-
-                                <div class="server-top">
-
-                                    ${
-                                        icon
-                                            ? `
-                                                <img
-                                                    class="server-icon"
-                                                    src="${icon}"
-                                                    alt=""
-                                                >
-                                            `
-                                            : `
-                                                <div class="server-icon-placeholder">
-                                                    ${escapeHtml(
-                                                        guild.name
-                                                            .charAt(0)
-                                                            .toUpperCase()
-                                                    )}
-                                                </div>
-                                            `
-                                    }
-
-                                    <div class="server-name">
-                                        ${escapeHtml(guild.name)}
-                                    </div>
-
-                                </div>
-
-                                <div class="server-status">
-                                    ✓ You can manage this server
-                                </div>
-
-                            </a>
-                        `;
-
-                    }).join("")}
-
-                </div>
-            `
-    }
-
+                                <a
+                                    class="open"
+                                    href="/dashboard/server/${encodeURIComponent(guild.id)}"
+                                >
+                                    Open Dashboard
+                                </a>
+                            </div>
+                        `
+                    )
+                    .join("")
+                : `
+                    <div class="empty">
+                        <strong>No manageable servers found.</strong>
+                        <br><br>
+                        You need Manage Server permissions
+                        or server ownership to manage Resolve.
+                    </div>
+                `
+        }
+    </div>
 </main>
 
 </body>
-
 </html>
-    `);
+        `);
+    } catch (error) {
+        console.error(
+            "❌ Dashboard error:",
+            error
+        );
+
+        res
+            .status(500)
+            .send("Unable to load the dashboard.");
+    }
 });
 
-// =================================
-// SERVER DASHBOARD
-// =================================
+/* --------------------------------------------------
+   SERVER ACCESS CHECK
+-------------------------------------------------- */
 
-app.get(
-    "/dashboard/server/:guildId",
-    requireLogin,
-    async (req, res) => {
+function getManageableGuild(req, guildId) {
+    const guild = (req.session.guilds || []).find(
+        (item) => item.id === guildId
+    );
 
-        const guildId = req.params.guildId;
+    if (!guild) {
+        return null;
+    }
 
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
+    if (!hasManageGuild(guild)) {
+        return null;
+    }
+
+    return guild;
+}
+
+/* --------------------------------------------------
+   START SERVER
+-------------------------------------------------- */
+
+app.use((req, res, next) => {
+    res.locals.user = req.session.user || null;
+    next();
+});
+
+app.listen(PORT, () => {
+    console.log(
+        `🚀 Resolve Dashboard running on port ${PORT}`
+    );
+});
+/* --------------------------------------------------
+   SERVER DASHBOARD
+-------------------------------------------------- */
+
+app.get("/dashboard/server/:guildId", requireLogin, async (req, res) => {
+    try {
+        const { guildId } = req.params;
+
+        const guild = getManageableGuild(req, guildId);
 
         if (!guild) {
             return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <p>
-                    You do not have permission to manage this server.
-                </p>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Denied - Resolve</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #0f1117;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .box {
+            width: 90%;
+            max-width: 500px;
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 16px;
+            padding: 35px;
+            text-align: center;
+        }
+
+        h1 {
+            margin-top: 0;
+        }
+
+        p {
+            color: #9ca3af;
+            line-height: 1.6;
+        }
+
+        a {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 11px 18px;
+            border-radius: 8px;
+            background: #5865f2;
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="box">
+        <h1>Access Denied</h1>
+
+        <p>
+            You don't have permission to manage this Discord server
+            through Resolve.
+        </p>
+
+        <a href="/dashboard">
+            Back to Servers
+        </a>
+    </div>
+</body>
+</html>
             `);
         }
 
-        let settings = null;
+        const ticketStats = await db.query(
+            `
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE status = 'open'
+                )::int AS open,
 
-        try {
-            const result = await db.query(
-                `
-                SELECT *
-                FROM guild_settings
-                WHERE guild_id = $1
-                LIMIT 1
-                `,
-                [guildId]
-            );
+                COUNT(*) FILTER (
+                    WHERE status = 'human'
+                )::int AS claimed,
 
-            settings = result.rows[0] || null;
+                COUNT(*) FILTER (
+                    WHERE status = 'closed'
+                )::int AS closed,
 
-        } catch (error) {
+                COUNT(*) FILTER (
+                    WHERE created_at >= CURRENT_DATE
+                )::int AS today
 
-            console.error(
-                "❌ Failed to load server settings:",
-                error.message
-            );
-        }
+            FROM tickets
+            WHERE guild_id = $1
+            `,
+            [guildId]
+        );
+
+        const knowledgeStats = await db.query(
+            `
+            SELECT
+                COUNT(*)::int AS total,
+
+                COUNT(*) FILTER (
+                    WHERE approved = TRUE
+                )::int AS approved
+
+            FROM knowledge
+            WHERE guild_id = $1
+            `,
+            [guildId]
+        );
+
+        const stats = ticketStats.rows[0] || {
+            open: 0,
+            claimed: 0,
+            closed: 0,
+            today: 0
+        };
+
+        const knowledge = knowledgeStats.rows[0] || {
+            total: 0,
+            approved: 0
+        };
 
         res.send(`
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
-
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>${escapeHtml(guild.name)} | Resolve</title>
-
-<style>
-
-* {
-    box-sizing: border-box;
-}
-
-body {
-    margin: 0;
-    min-height: 100vh;
-
-    color: #f5f7ff;
-
-    font-family: Inter, Arial, sans-serif;
-
-    background:
-        radial-gradient(
-            circle at 10% 10%,
-            rgba(124,92,255,0.22),
-            transparent 35%
-        ),
-        radial-gradient(
-            circle at 90% 80%,
-            rgba(0,200,255,0.10),
-            transparent 35%
-        ),
-        #0b0d16;
-}
-
-.navbar {
-    height: 72px;
-
-    display: flex;
-    align-items: center;
-
-    padding: 0 30px;
-
-    background: rgba(17,20,34,0.85);
-
-    border-bottom:
-        1px solid rgba(255,255,255,0.08);
-
-    backdrop-filter: blur(18px);
-}
-
-.brand {
-    font-size: 25px;
-    font-weight: 800;
-}
-
-.brand span {
-    background:
-        linear-gradient(
-            135deg,
-            #8b7cff,
-            #5de0ff
-        );
-
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-.container {
-    max-width: 1150px;
-    margin: auto;
-    padding: 45px 25px;
-}
-
-.back {
-    color: #969db2;
-    text-decoration: none;
-
-    display: inline-block;
-
-    margin-bottom: 25px;
-}
-
-.back:hover {
-    color: white;
-}
-
-.server-title {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-
-    margin-bottom: 8px;
-}
-
-.server-title h1 {
-    margin: 0;
-
-    font-size: 38px;
-    letter-spacing: -1px;
-}
-
-.server-title-icon {
-    width: 58px;
-    height: 58px;
-
-    border-radius: 16px;
-
-    object-fit: cover;
-}
-
-.subtitle {
-    color: #969db2;
-    margin-bottom: 38px;
-}
-
-.grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
-}
-
-.card {
-    position: relative;
-    overflow: hidden;
-
-    min-height: 190px;
-
-    background:
-        linear-gradient(
-            145deg,
-            rgba(26,30,50,0.96),
-            rgba(18,21,36,0.96)
-        );
-
-    border:
-        1px solid rgba(255,255,255,0.08);
-
-    border-radius: 18px;
-
-    padding: 25px;
-
-    color: white;
-    text-decoration: none;
-
-    transition:
-        transform 0.2s,
-        border-color 0.2s,
-        box-shadow 0.2s;
-}
-
-.card:hover {
-    transform: translateY(-5px);
-
-    border-color:
-        rgba(139,124,255,0.6);
-
-    box-shadow:
-        0 15px 35px rgba(0,0,0,0.3),
-        0 0 25px rgba(124,92,255,0.08);
-}
-
-.card-icon {
-    font-size: 31px;
-    margin-bottom: 20px;
-}
-
-.card h2 {
-    margin: 0 0 9px;
-    font-size: 20px;
-}
-
-.card p {
-    margin: 0;
-
-    color: #9299ae;
-
-    line-height: 1.5;
-
-    font-size: 14px;
-}
-
-.card-arrow {
-    position: absolute;
-
-    right: 20px;
-    bottom: 20px;
-
-    color: #777f99;
-
-    font-size: 18px;
-}
-
-.status {
-    margin-top: 30px;
-
-    padding: 18px 20px;
-
-    background:
-        rgba(98,230,168,0.06);
-
-    border:
-        1px solid rgba(98,230,168,0.15);
-
-    border-radius: 14px;
-
-    color: #62e6a8;
-
-    font-size: 14px;
-}
-
-@media (max-width: 850px) {
-    .grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (max-width: 600px) {
-
-    .grid {
-        grid-template-columns: 1fr;
-    }
-
-    .container {
-        padding: 35px 18px;
-    }
-
-    .server-title h1 {
-        font-size: 30px;
-    }
-}
-
-</style>
-
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        ${escapeHtml(guild.name)} - Resolve
+    </title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f1117;
+            color: #ffffff;
+        }
+
+        header {
+            height: 70px;
+            border-bottom: 1px solid #272b36;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 25px;
+            background: #12151c;
+        }
+
+        .brand {
+            font-size: 21px;
+            font-weight: 700;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .back {
+            color: #aeb4c0;
+            text-decoration: none;
+        }
+
+        .back:hover {
+            color: white;
+        }
+
+        .logout {
+            color: #ff6b6b;
+            text-decoration: none;
+        }
+
+        main {
+            max-width: 1150px;
+            margin: 0 auto;
+            padding: 35px 22px 60px;
+        }
+
+        .server-header {
+            margin-bottom: 30px;
+        }
+
+        .server-header h1 {
+            margin: 0 0 8px;
+            font-size: 32px;
+        }
+
+        .server-header p {
+            margin: 0;
+            color: #9ca3af;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(180px, 1fr));
+
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .stat {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 20px;
+        }
+
+        .stat-label {
+            color: #9ca3af;
+            font-size: 14px;
+        }
+
+        .stat-value {
+            font-size: 30px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(280px, 1fr));
+
+            gap: 18px;
+        }
+
+        .card {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 24px;
+        }
+
+        .card h2 {
+            margin: 0 0 8px;
+            font-size: 20px;
+        }
+
+        .card p {
+            color: #9ca3af;
+            line-height: 1.5;
+            min-height: 48px;
+        }
+
+        .button {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 11px 17px;
+            border-radius: 8px;
+            background: #5865f2;
+            color: white;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .button:hover {
+            background: #4752c4;
+        }
+
+        .secondary {
+            background: #252936;
+        }
+
+        .secondary:hover {
+            background: #303544;
+        }
+
+        .knowledge-number {
+            color: #a78bfa;
+        }
+
+        @media (max-width: 600px) {
+            header {
+                padding: 0 15px;
+            }
+
+            .header-right {
+                gap: 10px;
+                font-size: 14px;
+            }
+
+            main {
+                padding: 25px 15px 50px;
+            }
+
+            .server-header h1 {
+                font-size: 26px;
+            }
+        }
+    </style>
 </head>
 
 <body>
 
-<nav class="navbar">
+<header>
 
     <div class="brand">
-        <span>R</span>esolve
+        Resolve
     </div>
 
-</nav>
+    <div class="header-right">
 
-<main class="container">
+        <a
+            class="back"
+            href="/dashboard"
+        >
+            Servers
+        </a>
 
-    <a class="back" href="/dashboard">
-        ← Back to servers
-    </a>
+        <a
+            class="logout"
+            href="/logout"
+        >
+            Logout
+        </a>
 
-    <div class="server-title">
+    </div>
 
-        ${
-            guild.icon
-                ? `
-                    <img
-                        class="server-title-icon"
-                        src="https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128"
-                    >
-                `
-                : ""
-        }
+</header>
+
+<main>
+
+    <div class="server-header">
 
         <h1>
             ${escapeHtml(guild.name)}
         </h1>
 
+        <p>
+            Manage Resolve's support system for this server.
+        </p>
+
     </div>
 
-    <div class="subtitle">
-        Manage how Resolve works in this server.
+    <div class="stats">
+
+        <div class="stat">
+            <div class="stat-label">
+                Open Tickets
+            </div>
+
+            <div class="stat-value">
+                ${stats.open}
+            </div>
+        </div>
+
+        <div class="stat">
+            <div class="stat-label">
+                Claimed Tickets
+            </div>
+
+            <div class="stat-value">
+                ${stats.claimed}
+            </div>
+        </div>
+
+        <div class="stat">
+            <div class="stat-label">
+                Closed Tickets
+            </div>
+
+            <div class="stat-value">
+                ${stats.closed}
+            </div>
+        </div>
+
+        <div class="stat">
+            <div class="stat-label">
+                Tickets Today
+            </div>
+
+            <div class="stat-value">
+                ${stats.today}
+            </div>
+        </div>
+
     </div>
 
-    <div class="grid">
+    <div class="cards">
+
+        <div class="card">
+
+            <h2>
+                🎫 Ticket Center
+            </h2>
+
+            <p>
+                View, manage, claim, close, and review
+                support tickets from your dashboard.
+            </p>
+
+            <a
+                class="button"
+                href="/dashboard/server/${encodeURIComponent(guildId)}/tickets"
+            >
+                Open Tickets
+            </a>
+
+        </div>
+
+        <div class="card">
+
+            <h2>
+                🧠 Knowledge
+            </h2>
+
+            <p>
+                Manage the approved information Resolve
+                can use when answering support questions.
+            </p>
+
+            <p>
+                <strong class="knowledge-number">
+                    ${knowledge.approved}
+                </strong>
+                approved entries
+            </p>
+
+            <a
+                class="button secondary"
+                href="/dashboard/server/${encodeURIComponent(guildId)}/knowledge"
+            >
+                Manage Knowledge
+            </a>
+
+        </div>
+
+        <div class="card">
+
+            <h2>
+                🤖 AI Settings
+            </h2>
+
+            <p>
+                Configure how Resolve handles support
+                questions and human handoffs.
+            </p>
+
+            <a
+                class="button secondary"
+                href="/dashboard/server/${encodeURIComponent(guildId)}/settings"
+            >
+                AI Settings
+            </a>
+
+        </div>
+
+        <div class="card">
+
+            <h2>
+                📊 Support Stats
+            </h2>
+
+            <p>
+                Review your server's support activity,
+                ticket volume, and knowledge growth.
+            </p>
+
+            <a
+                class="button secondary"
+                href="/dashboard/server/${encodeURIComponent(guildId)}/tickets"
+            >
+                View Activity
+            </a>
+
+        </div>
+
+    </div>
+
+</main>
+
+</body>
+</html>
+        `);
+
+    } catch (error) {
+        console.error(
+            "❌ Server dashboard error:",
+            error
+        );
+
+        res.status(500).send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Resolve Error</title>
+</head>
+
+<body
+    style="
+        background:#0f1117;
+        color:white;
+        font-family:Arial;
+        padding:50px;
+    "
+>
+
+    <h1>Resolve Dashboard Error</h1>
+
+    <p>
+        Something went wrong while loading this server.
+    </p>
+
+    <a
+        href="/dashboard"
+        style="color:#5865f2;"
+    >
+        Return to Dashboard
+    </a>
+
+</body>
+</html>
+        `);
+    }
+});
+
+/* --------------------------------------------------
+   TEMPORARY SETTINGS PAGE
+-------------------------------------------------- */
+
+app.get(
+    "/dashboard/server/:guildId/settings",
+    requireLogin,
+    async (req, res) => {
+        const { guildId } = req.params;
+
+        const guild = getManageableGuild(req, guildId);
+
+        if (!guild) {
+            return res.status(403).send("Access denied.");
+        }
+
+        res.send(`
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>AI Settings - Resolve</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #0f1117;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        main {
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 45px 22px;
+        }
+
+        .box {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 25px;
+        }
+
+        p {
+            color: #9ca3af;
+            line-height: 1.6;
+        }
+
+        a {
+            color: #5865f2;
+        }
+    </style>
+</head>
+
+<body>
+
+<main>
+
+    <div class="box">
+
+        <h1>
+            🤖 AI Settings
+        </h1>
+
+        <p>
+            Resolve AI settings will be available here.
+        </p>
 
         <a
-            class="card"
-            href="/dashboard/server/${guild.id}/knowledge"
+            href="/dashboard/server/${encodeURIComponent(guildId)}"
         >
-
-            <div class="card-icon">
-                🧠
-            </div>
-
-            <h2>
-                Knowledge
-            </h2>
-
-            <p>
-                Manage the approved information
-                Resolve uses to answer members.
-            </p>
-
-            <div class="card-arrow">
-                →
-            </div>
-
+            ← Back to Server Dashboard
         </a>
 
-        <a class="card" href="#">
-
-            <div class="card-icon">
-                🎫
-            </div>
-
-            <h2>
-                Tickets
-            </h2>
-
-            <p>
-                Configure ticket channels,
-                priorities, and ticket behavior.
-            </p>
-
-            <div class="card-arrow">
-                →
-            </div>
-
-        </a>
-
-        <a class="card" href="#">
-
-            <div class="card-icon">
-                🤖
-            </div>
-
-            <h2>
-                AI Settings
-            </h2>
-
-            <p>
-                Control Resolve's AI support
-                and response behavior.
-            </p>
-
-            <div class="card-arrow">
-                →
-            </div>
-
-        </a>
-
-        <a class="card" href="#">
-
-            <div class="card-icon">
-                🛡️
-            </div>
-
-            <h2>
-                Support Team
-            </h2>
-
-            <p>
-                Configure the role used by your
-                support staff.
-            </p>
-
-            <div class="card-arrow">
-                →
-            </div>
-
-        </a>
-
-        <a class="card" href="#">
-
-            <div class="card-icon">
-                📊
-            </div>
-
-            <h2>
-                Analytics
-            </h2>
-
-            <p>
-                View ticket activity,
-                AI usage, and support statistics.
-            </p>
-
-            <div class="card-arrow">
-                →
-            </div>
-
-        </a>
-
-        <a class="card" href="#">
-
-            <div class="card-icon">
-                ⚙️
-            </div>
-
-            <h2>
-                Server Settings
-            </h2>
-
-            <p>
-                Configure Resolve for this
-                Discord server.
-            </p>
-
-            <div class="card-arrow">
-                →
-            </div>
-
-        </a>
-
-    </div>
-
-    <div class="status">
-        ● Resolve dashboard connected to your server configuration.
     </div>
 
 </main>
@@ -1124,32 +1157,31 @@ body {
     }
 );
 
-// =================================
-// KNOWLEDGE — VIEW
-// =================================
+/* --------------------------------------------------
+   START SERVER
+-------------------------------------------------- */
+
+app.listen(PORT, () => {
+    console.log(
+        `🚀 Resolve Dashboard running on port ${PORT}`
+    );
+});
+/* --------------------------------------------------
+   KNOWLEDGE
+-------------------------------------------------- */
 
 app.get(
     "/dashboard/server/:guildId/knowledge",
     requireLogin,
     async (req, res) => {
-
-        const guildId = req.params.guildId;
-
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
-
-        if (!guild) {
-            return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
-            `);
-        }
-
         try {
+            const { guildId } = req.params;
+
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
 
             const result = await db.query(
                 `
@@ -1166,95 +1198,1759 @@ app.get(
                 [guildId]
             );
 
-            res.render("knowledge", {
-                guild,
-                knowledge: result.rows
-            });
+            const entries = result.rows;
+
+            const entryHtml = entries.length
+                ? entries
+                    .map((entry) => `
+                        <div class="knowledge-entry">
+
+                            <div class="entry-top">
+
+                                <div>
+                                    <h2>
+                                        ${escapeHtml(entry.title)}
+                                    </h2>
+
+                                    <span class="entry-id">
+                                        Knowledge #${entry.id}
+                                    </span>
+                                </div>
+
+                                <span class="${
+                                    entry.approved
+                                        ? "approved"
+                                        : "pending"
+                                }">
+                                    ${
+                                        entry.approved
+                                            ? "✓ Approved"
+                                            : "Pending"
+                                    }
+                                </span>
+
+                            </div>
+
+                            <div class="content">
+                                ${escapeHtml(entry.content)}
+                            </div>
+
+                            ${
+                                entry.source_channel_id
+                                    ? `
+                                        <div class="source">
+                                            Source channel:
+                                            ${escapeHtml(
+                                                entry.source_channel_id
+                                            )}
+                                        </div>
+                                    `
+                                    : ""
+                            }
+
+                        </div>
+                    `)
+                    .join("")
+                : `
+                    <div class="empty">
+                        <h2>No knowledge yet</h2>
+
+                        <p>
+                            Resolve has not learned any approved
+                            knowledge for this server yet.
+                        </p>
+                    </div>
+                `;
+
+            res.send(`
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        Knowledge - ${escapeHtml(guild.name)}
+    </title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #0f1117;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        header {
+            height: 70px;
+            padding: 0 24px;
+            border-bottom: 1px solid #272b36;
+            background: #12151c;
+
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .brand {
+            font-size: 21px;
+            font-weight: bold;
+        }
+
+        .header-links {
+            display: flex;
+            gap: 18px;
+        }
+
+        .header-links a {
+            color: #aeb4c0;
+            text-decoration: none;
+        }
+
+        .header-links a:hover {
+            color: white;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 35px 22px 60px;
+        }
+
+        .heading {
+            margin-bottom: 28px;
+        }
+
+        .heading h1 {
+            margin: 0 0 8px;
+            font-size: 32px;
+        }
+
+        .heading p {
+            margin: 0;
+            color: #9ca3af;
+        }
+
+        .knowledge-entry {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 22px;
+            margin-bottom: 16px;
+        }
+
+        .entry-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 15px;
+        }
+
+        .entry-top h2 {
+            margin: 0 0 5px;
+            font-size: 19px;
+        }
+
+        .entry-id {
+            color: #727987;
+            font-size: 13px;
+        }
+
+        .approved,
+        .pending {
+            padding: 6px 10px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .approved {
+            background: #173b2c;
+            color: #57f287;
+        }
+
+        .pending {
+            background: #3c3215;
+            color: #fee75c;
+        }
+
+        .content {
+            margin-top: 18px;
+            background: #11141b;
+            border-radius: 9px;
+            padding: 16px;
+            color: #d6d9df;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .source {
+            margin-top: 12px;
+            color: #727987;
+            font-size: 13px;
+        }
+
+        .empty {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 35px;
+            text-align: center;
+        }
+
+        .empty h2 {
+            margin-top: 0;
+        }
+
+        .empty p {
+            color: #9ca3af;
+        }
+
+        @media (max-width: 600px) {
+
+            header {
+                padding: 0 15px;
+            }
+
+            .header-links {
+                gap: 10px;
+                font-size: 14px;
+            }
+
+            main {
+                padding: 25px 15px;
+            }
+
+            .entry-top {
+                flex-direction: column;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<header>
+
+    <div class="brand">
+        Resolve
+    </div>
+
+    <div class="header-links">
+
+        <a
+            href="/dashboard/server/${encodeURIComponent(guildId)}"
+        >
+            ← Server Dashboard
+        </a>
+
+        <a href="/logout">
+            Logout
+        </a>
+
+    </div>
+
+</header>
+
+<main>
+
+    <div class="heading">
+
+        <h1>
+            🧠 Knowledge
+        </h1>
+
+        <p>
+            Approved information Resolve can use
+            when helping members of this server.
+        </p>
+
+    </div>
+
+    ${entryHtml}
+
+</main>
+
+</body>
+
+</html>
+            `);
 
         } catch (error) {
 
             console.error(
-                "❌ Failed to load knowledge:",
-                error.message
+                "❌ Knowledge page error:",
+                error
             );
 
-            res.status(500).send(`
-                <h1>Database Error</h1>
-
-                <p>
-                    Could not load Resolve knowledge.
-                </p>
-
-                <a href="/dashboard/server/${guildId}">
-                    Back to server
-                </a>
-            `);
+            res
+                .status(500)
+                .send("Unable to load knowledge.");
         }
     }
 );
 
-// =================================
-// KNOWLEDGE — ADD
-// =================================
 
-app.post(
-    "/dashboard/server/:guildId/knowledge",
+/* --------------------------------------------------
+   TICKET CENTER
+-------------------------------------------------- */
+
+app.get(
+    "/dashboard/server/:guildId/tickets",
     requireLogin,
     async (req, res) => {
 
-        const guildId = req.params.guildId;
+        try {
 
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
+            const { guildId } = req.params;
 
-        if (!guild) {
-            return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
-            `);
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
+
+            const status = req.query.status || "all";
+            const priority = req.query.priority || "all";
+            const search = (req.query.search || "").trim();
+
+            const allowedStatuses = [
+                "open",
+                "human",
+                "closed"
+            ];
+
+            const allowedPriorities = [
+                "low",
+                "normal",
+                "high",
+                "urgent"
+            ];
+
+            let where = [
+                "guild_id = $1"
+            ];
+
+            const values = [
+                guildId
+            ];
+
+            let parameterNumber = 2;
+
+            if (
+                allowedStatuses.includes(status)
+            ) {
+                where.push(
+                    `status = $${parameterNumber}`
+                );
+
+                values.push(status);
+
+                parameterNumber++;
+            }
+
+            if (
+                allowedPriorities.includes(priority)
+            ) {
+                where.push(
+                    `priority = $${parameterNumber}`
+                );
+
+                values.push(priority);
+
+                parameterNumber++;
+            }
+
+            if (search) {
+
+                where.push(`
+                    (
+                        CAST(id AS TEXT) ILIKE $${parameterNumber}
+                        OR
+                        CAST(user_id AS TEXT) ILIKE $${parameterNumber}
+                        OR
+                        CAST(channel_id AS TEXT) ILIKE $${parameterNumber}
+                    )
+                `);
+
+                values.push(`%${search}%`);
+
+                parameterNumber++;
+            }
+
+            const result = await db.query(
+                `
+                SELECT
+                    id,
+                    channel_id,
+                    user_id,
+                    status,
+                    priority,
+                    created_at
+                FROM tickets
+                WHERE ${where.join(" AND ")}
+                ORDER BY created_at DESC
+                `,
+                values
+            );
+
+            const tickets = result.rows;
+
+            const ticketHtml = tickets.length
+                ? tickets
+                    .map((ticket) => {
+
+                        let statusLabel = "Open";
+
+                        if (ticket.status === "human") {
+                            statusLabel = "Claimed";
+                        }
+
+                        if (ticket.status === "closed") {
+                            statusLabel = "Closed";
+                        }
+
+                        const priorityValue =
+                            ticket.priority || "normal";
+
+                        const priorityEmoji = {
+                            low: "🟢",
+                            normal: "🔵",
+                            high: "🟠",
+                            urgent: "🔴"
+                        }[priorityValue] || "🔵";
+
+                        return `
+                            <a
+                                class="ticket"
+                                href="/dashboard/server/${encodeURIComponent(
+                                    guildId
+                                )}/tickets/${encodeURIComponent(
+                                    ticket.id
+                                )}"
+                            >
+
+                                <div class="ticket-main">
+
+                                    <div class="ticket-title">
+                                        Ticket #${ticket.id}
+                                    </div>
+
+                                    <div class="ticket-info">
+                                        User:
+                                        ${escapeHtml(ticket.user_id)}
+                                    </div>
+
+                                    <div class="ticket-info">
+                                        Channel:
+                                        ${escapeHtml(
+                                            ticket.channel_id
+                                        )}
+                                    </div>
+
+                                </div>
+
+                                <div class="ticket-right">
+
+                                    <span class="priority">
+                                        ${priorityEmoji}
+                                        ${escapeHtml(
+                                            priorityValue
+                                        )}
+                                    </span>
+
+                                    <span class="status">
+                                        ${statusLabel}
+                                    </span>
+
+                                </div>
+
+                            </a>
+                        `;
+                    })
+                    .join("")
+                : `
+                    <div class="empty">
+                        <h2>No tickets found</h2>
+
+                        <p>
+                            Try changing your filters or search.
+                        </p>
+                    </div>
+                `;
+
+            res.send(`
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        Tickets - ${escapeHtml(guild.name)}
+    </title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
         }
 
-        const title = String(
-            req.body.title || ""
-        ).trim();
-
-        const content = String(
-            req.body.content || ""
-        ).trim();
-
-        if (!title || !content) {
-            return res.status(400).send(`
-                <h1>Invalid Knowledge</h1>
-
-                <p>
-                    Title and content are required.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
+        body {
+            margin: 0;
+            background: #0f1117;
+            color: white;
+            font-family: Arial, sans-serif;
         }
 
-        if (title.length > 200) {
-            return res.status(400).send(`
-                <h1>Invalid Title</h1>
+        header {
+            height: 70px;
+            padding: 0 24px;
+            border-bottom: 1px solid #272b36;
+            background: #12151c;
 
-                <p>
-                    Knowledge titles must be 200 characters or less.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
+
+        .brand {
+            font-size: 21px;
+            font-weight: bold;
+        }
+
+        .header-links {
+            display: flex;
+            gap: 18px;
+        }
+
+        .header-links a {
+            color: #aeb4c0;
+            text-decoration: none;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 35px 22px 60px;
+        }
+
+        .heading {
+            margin-bottom: 25px;
+        }
+
+        .heading h1 {
+            margin: 0 0 8px;
+            font-size: 32px;
+        }
+
+        .heading p {
+            margin: 0;
+            color: #9ca3af;
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns:
+                1fr 180px 180px auto;
+
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .filters input,
+        .filters select,
+        .filters button {
+            min-height: 42px;
+            border-radius: 8px;
+            border: 1px solid #303542;
+            background: #181b24;
+            color: white;
+            padding: 0 12px;
+        }
+
+        .filters button {
+            background: #5865f2;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .ticket {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 13px;
+
+            padding: 18px;
+            margin-bottom: 12px;
+
+            color: white;
+            text-decoration: none;
+        }
+
+        .ticket:hover {
+            border-color: #5865f2;
+            background: #1b1f29;
+        }
+
+        .ticket-title {
+            font-weight: bold;
+            font-size: 17px;
+            margin-bottom: 7px;
+        }
+
+        .ticket-info {
+            color: #8f96a3;
+            font-size: 13px;
+            margin-top: 3px;
+        }
+
+        .ticket-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .priority,
+        .status {
+            padding: 7px 10px;
+            border-radius: 20px;
+            background: #252936;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .status {
+            color: #c9cdd5;
+        }
+
+        .empty {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 35px;
+            text-align: center;
+        }
+
+        .empty p {
+            color: #9ca3af;
+        }
+
+        @media (max-width: 700px) {
+
+            .filters {
+                grid-template-columns: 1fr;
+            }
+
+            .ticket {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .ticket-right {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<header>
+
+    <div class="brand">
+        Resolve
+    </div>
+
+    <div class="header-links">
+
+        <a
+            href="/dashboard/server/${encodeURIComponent(guildId)}"
+        >
+            ← Server Dashboard
+        </a>
+
+        <a href="/logout">
+            Logout
+        </a>
+
+    </div>
+
+</header>
+
+<main>
+
+    <div class="heading">
+
+        <h1>
+            🎫 Ticket Center
+        </h1>
+
+        <p>
+            Manage support tickets for
+            ${escapeHtml(guild.name)}.
+        </p>
+
+    </div>
+
+    <form
+        class="filters"
+        method="GET"
+        action="/dashboard/server/${encodeURIComponent(guildId)}/tickets"
+    >
+
+        <input
+            type="text"
+            name="search"
+            placeholder="Search ticket, user, or channel ID..."
+            value="${escapeHtml(search)}"
+        >
+
+        <select name="status">
+
+            <option
+                value="all"
+                ${status === "all" ? "selected" : ""}
+            >
+                All statuses
+            </option>
+
+            <option
+                value="open"
+                ${status === "open" ? "selected" : ""}
+            >
+                Open
+            </option>
+
+            <option
+                value="human"
+                ${status === "human" ? "selected" : ""}
+            >
+                Claimed
+            </option>
+
+            <option
+                value="closed"
+                ${status === "closed" ? "selected" : ""}
+            >
+                Closed
+            </option>
+
+        </select>
+
+        <select name="priority">
+
+            <option
+                value="all"
+                ${priority === "all" ? "selected" : ""}
+            >
+                All priorities
+            </option>
+
+            <option
+                value="low"
+                ${priority === "low" ? "selected" : ""}
+            >
+                🟢 Low
+            </option>
+
+            <option
+                value="normal"
+                ${priority === "normal" ? "selected" : ""}
+            >
+                🔵 Normal
+            </option>
+
+            <option
+                value="high"
+                ${priority === "high" ? "selected" : ""}
+            >
+                🟠 High
+            </option>
+
+            <option
+                value="urgent"
+                ${priority === "urgent" ? "selected" : ""}
+            >
+                🔴 Urgent
+            </option>
+
+        </select>
+
+        <button type="submit">
+            Search
+        </button>
+
+    </form>
+
+    ${ticketHtml}
+
+</main>
+
+</body>
+
+</html>
+            `);
+
+        } catch (error) {
+
+            console.error(
+                "❌ Ticket list error:",
+                error
+            );
+
+            res
+                .status(500)
+                .send("Unable to load tickets.");
+        }
+    }
+);
+/* --------------------------------------------------
+   INDIVIDUAL TICKET
+-------------------------------------------------- */
+
+app.get(
+    "/dashboard/server/:guildId/tickets/:ticketId",
+    requireLogin,
+    async (req, res) => {
+        try {
+            const { guildId, ticketId } = req.params;
+
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
+
+            const ticketResult = await db.query(
+                `
+                SELECT
+                    id,
+                    channel_id,
+                    user_id,
+                    guild_id,
+                    status,
+                    priority,
+                    created_at
+                FROM tickets
+                WHERE id = $1
+                AND guild_id = $2
+                LIMIT 1
+                `,
+                [ticketId, guildId]
+            );
+
+            if (ticketResult.rows.length === 0) {
+                return res.status(404).send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Ticket Not Found - Resolve</title>
+</head>
+
+<body
+    style="
+        margin:0;
+        background:#0f1117;
+        color:white;
+        font-family:Arial,sans-serif;
+        padding:50px;
+    "
+>
+
+    <h1>Ticket Not Found</h1>
+
+    <p style="color:#9ca3af;">
+        This ticket does not exist or does not belong
+        to this server.
+    </p>
+
+    <a
+        href="/dashboard/server/${encodeURIComponent(guildId)}/tickets"
+        style="color:#5865f2;"
+    >
+        ← Back to Tickets
+    </a>
+
+</body>
+</html>
+                `);
+            }
+
+            const ticket = ticketResult.rows[0];
+
+            const messagesResult = await db.query(
+                `
+                SELECT
+                    user_id,
+                    content,
+                    is_staff,
+                    created_at
+                FROM ticket_messages
+                WHERE ticket_id = $1
+                ORDER BY created_at ASC
+                `,
+                [ticket.id]
+            );
+
+            const messages = messagesResult.rows;
+
+            const statusLabel =
+                ticket.status === "human"
+                    ? "Claimed"
+                    : ticket.status === "closed"
+                        ? "Closed"
+                        : "Open";
+
+            const priorityValue =
+                ticket.priority || "normal";
+
+            const priorityEmoji = {
+                low: "🟢",
+                normal: "🔵",
+                high: "🟠",
+                urgent: "🔴"
+            }[priorityValue] || "🔵";
+
+            const messageHtml = messages.length
+                ? messages
+                    .map((message) => `
+                        <div class="message ${
+                            message.is_staff
+                                ? "staff"
+                                : "member"
+                        }">
+
+                            <div class="message-top">
+
+                                <strong>
+                                    ${
+                                        message.is_staff
+                                            ? "🛡️ Support Staff"
+                                            : "👤 Member"
+                                    }
+                                </strong>
+
+                                <span>
+                                    ${escapeHtml(
+                                        message.user_id
+                                    )}
+                                </span>
+
+                            </div>
+
+                            <div class="message-content">
+                                ${escapeHtml(
+                                    message.content
+                                )}
+                            </div>
+
+                        </div>
+                    `)
+                    .join("")
+                : `
+                    <div class="empty">
+                        No messages have been recorded
+                        for this ticket.
+                    </div>
+                `;
+
+            const canSaveAnswer =
+                ticket.status !== "closed";
+
+            res.send(`
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        Ticket #${escapeHtml(ticket.id)} - Resolve
+    </title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #0f1117;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        header {
+            min-height: 70px;
+            padding: 15px 24px;
+            border-bottom: 1px solid #272b36;
+            background: #12151c;
+
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+        }
+
+        .brand {
+            font-size: 21px;
+            font-weight: bold;
+        }
+
+        .header-links {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .header-links a {
+            color: #aeb4c0;
+            text-decoration: none;
+        }
+
+        .header-links a:hover {
+            color: white;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 30px 22px 60px;
+        }
+
+        .ticket-header {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 22px;
+            margin-bottom: 18px;
+        }
+
+        .ticket-header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        .subtext {
+            color: #8f96a3;
+            font-size: 14px;
+        }
+
+        .badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .badge {
+            background: #252936;
+            border-radius: 20px;
+            padding: 7px 11px;
+            font-size: 13px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 9px;
+            margin-top: 20px;
+        }
+
+        .actions form {
+            margin: 0;
+        }
+
+        button {
+            border: 0;
+            border-radius: 8px;
+            padding: 10px 15px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .claim {
+            background: #5865f2;
+        }
+
+        .unclaim {
+            background: #4b5563;
+        }
+
+        .close {
+            background: #ed4245;
+        }
+
+        .reopen {
+            background: #57f287;
+            color: #111;
+        }
+
+        .conversation {
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 20px;
+        }
+
+        .conversation h2 {
+            margin-top: 0;
+        }
+
+        .message {
+            border-radius: 11px;
+            padding: 15px;
+            margin-bottom: 12px;
+            border: 1px solid #292e3a;
+        }
+
+        .message.member {
+            background: #151820;
+        }
+
+        .message.staff {
+            background: #1b2130;
+            border-color: #39436b;
+        }
+
+        .message-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .message-top span {
+            color: #737b8b;
+        }
+
+        .message-content {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: #d9dce3;
+            line-height: 1.6;
+        }
+
+        .save-box {
+            margin-top: 20px;
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 14px;
+            padding: 20px;
+        }
+
+        .save-box h2 {
+            margin-top: 0;
+        }
+
+        .save-box p {
+            color: #9ca3af;
+            line-height: 1.5;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 130px;
+            resize: vertical;
+            border: 1px solid #303542;
+            background: #10131a;
+            color: white;
+            border-radius: 9px;
+            padding: 12px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            outline: none;
+        }
+
+        textarea:focus {
+            border-color: #5865f2;
+        }
+
+        .save-button {
+            margin-top: 10px;
+            background: #5865f2;
+        }
+
+        .disabled-text {
+            color: #727987;
+            font-size: 14px;
+        }
+
+        .empty {
+            padding: 25px;
+            text-align: center;
+            color: #8f96a3;
+        }
+
+        @media (max-width: 650px) {
+
+            header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .ticket-header-top {
+                flex-direction: column;
+            }
+
+            main {
+                padding: 20px 14px 45px;
+            }
+
+            .message-top {
+                flex-direction: column;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<header>
+
+    <div class="brand">
+        Resolve
+    </div>
+
+    <div class="header-links">
+
+        <a
+            href="/dashboard/server/${encodeURIComponent(guildId)}/tickets"
+        >
+            ← Tickets
+        </a>
+
+        <a href="/logout">
+            Logout
+        </a>
+
+    </div>
+
+</header>
+
+<main>
+
+    <div class="ticket-header">
+
+        <div class="ticket-header-top">
+
+            <div>
+
+                <h1>
+                    🎫 Ticket #${escapeHtml(ticket.id)}
+                </h1>
+
+                <div class="subtext">
+                    User ID:
+                    ${escapeHtml(ticket.user_id)}
+                    <br>
+                    Channel ID:
+                    ${escapeHtml(ticket.channel_id)}
+                </div>
+
+            </div>
+
+            <div class="badges">
+
+                <span class="badge">
+                    ${priorityEmoji}
+                    ${escapeHtml(priorityValue)}
+                </span>
+
+                <span class="badge">
+                    ${statusLabel}
+                </span>
+
+            </div>
+
+        </div>
+
+        <div class="actions">
+
+            ${
+                ticket.status === "closed"
+                    ? `
+                        <form
+                            method="POST"
+                            action="/dashboard/server/${encodeURIComponent(
+                                guildId
+                            )}/tickets/${encodeURIComponent(
+                                ticket.id
+                            )}/reopen"
+                        >
+                            <button
+                                class="reopen"
+                                type="submit"
+                            >
+                                Reopen Ticket
+                            </button>
+                        </form>
+                    `
+                    : ticket.status === "human"
+                        ? `
+                            <form
+                                method="POST"
+                                action="/dashboard/server/${encodeURIComponent(
+                                    guildId
+                                )}/tickets/${encodeURIComponent(
+                                    ticket.id
+                                )}/unclaim"
+                            >
+                                <button
+                                    class="unclaim"
+                                    type="submit"
+                                >
+                                    Unclaim
+                                </button>
+                            </form>
+                        `
+                        : `
+                            <form
+                                method="POST"
+                                action="/dashboard/server/${encodeURIComponent(
+                                    guildId
+                                )}/tickets/${encodeURIComponent(
+                                    ticket.id
+                                )}/claim"
+                            >
+                                <button
+                                    class="claim"
+                                    type="submit"
+                                >
+                                    Claim Ticket
+                                </button>
+                            </form>
+                        `
+            }
+
+            ${
+                ticket.status !== "closed"
+                    ? `
+                        <form
+                            method="POST"
+                            action="/dashboard/server/${encodeURIComponent(
+                                guildId
+                            )}/tickets/${encodeURIComponent(
+                                ticket.id
+                            )}/close"
+                        >
+                            <button
+                                class="close"
+                                type="submit"
+                            >
+                                Close Ticket
+                            </button>
+                        </form>
+                    `
+                    : ""
+            }
+
+        </div>
+
+    </div>
+
+    <div class="conversation">
+
+        <h2>
+            Conversation
+        </h2>
+
+        ${messageHtml}
+
+    </div>
+
+    ${
+        canSaveAnswer
+            ? `
+                <div class="save-box">
+
+                    <h2>
+                        🧠 Save Answer to Knowledge
+                    </h2>
+
+                    <p>
+                        Save an approved staff answer so
+                        Resolve can use it when helping
+                        members in the future.
+                    </p>
+
+                    <form
+                        method="POST"
+                        action="/dashboard/server/${encodeURIComponent(
+                            guildId
+                        )}/tickets/${encodeURIComponent(
+                            ticket.id
+                        )}/save-answer"
+                    >
+
+                        <textarea
+                            name="answer"
+                            required
+                            placeholder="Enter the approved answer that Resolve should remember..."
+                        ></textarea>
+
+                        <br>
+
+                        <button
+                            class="save-button"
+                            type="submit"
+                        >
+                            Save Approved Answer
+                        </button>
+
+                    </form>
+
+                </div>
+            `
+            : `
+                <div class="save-box">
+
+                    <h2>
+                        🧠 Knowledge
+                    </h2>
+
+                    <p class="disabled-text">
+                        This ticket is closed.
+                    </p>
+
+                </div>
+            `
+    }
+
+</main>
+
+</body>
+
+</html>
+            `);
+
+        } catch (error) {
+
+            console.error(
+                "❌ Ticket details error:",
+                error
+            );
+
+            res
+                .status(500)
+                .send("Unable to load this ticket.");
+        }
+    }
+);
+
+
+/* --------------------------------------------------
+   CLAIM TICKET
+-------------------------------------------------- */
+
+app.post(
+    "/dashboard/server/:guildId/tickets/:ticketId/claim",
+    requireLogin,
+    async (req, res) => {
 
         try {
+
+            const { guildId, ticketId } = req.params;
+
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
+
+            await db.query(
+                `
+                UPDATE tickets
+                SET status = 'human'
+                WHERE id = $1
+                AND guild_id = $2
+                AND status != 'closed'
+                `,
+                [ticketId, guildId]
+            );
+
+            res.redirect(
+                `/dashboard/server/${encodeURIComponent(
+                    guildId
+                )}/tickets/${encodeURIComponent(
+                    ticketId
+                )}`
+            );
+
+        } catch (error) {
+
+            console.error(
+                "❌ Claim ticket error:",
+                error
+            );
+
+            res.status(500).send(
+                "Unable to claim this ticket."
+            );
+        }
+    }
+);
+
+
+/* --------------------------------------------------
+   UNCLAIM TICKET
+-------------------------------------------------- */
+
+app.post(
+    "/dashboard/server/:guildId/tickets/:ticketId/unclaim",
+    requireLogin,
+    async (req, res) => {
+
+        try {
+
+            const { guildId, ticketId } = req.params;
+
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
+
+            await db.query(
+                `
+                UPDATE tickets
+                SET status = 'open'
+                WHERE id = $1
+                AND guild_id = $2
+                AND status = 'human'
+                `,
+                [ticketId, guildId]
+            );
+
+            res.redirect(
+                `/dashboard/server/${encodeURIComponent(
+                    guildId
+                )}/tickets/${encodeURIComponent(
+                    ticketId
+                )}`
+            );
+
+        } catch (error) {
+
+            console.error(
+                "❌ Unclaim ticket error:",
+                error
+            );
+
+            res.status(500).send(
+                "Unable to unclaim this ticket."
+            );
+        }
+    }
+);
+
+
+/* --------------------------------------------------
+   CLOSE TICKET
+-------------------------------------------------- */
+
+app.post(
+    "/dashboard/server/:guildId/tickets/:ticketId/close",
+    requireLogin,
+    async (req, res) => {
+
+        try {
+
+            const { guildId, ticketId } = req.params;
+
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
+
+            await db.query(
+                `
+                UPDATE tickets
+                SET status = 'closed'
+                WHERE id = $1
+                AND guild_id = $2
+                AND status != 'closed'
+                `,
+                [ticketId, guildId]
+            );
+
+            res.redirect(
+                `/dashboard/server/${encodeURIComponent(
+                    guildId
+                )}/tickets/${encodeURIComponent(
+                    ticketId
+                )}`
+            );
+
+        } catch (error) {
+
+            console.error(
+                "❌ Close ticket error:",
+                error
+            );
+
+            res.status(500).send(
+                "Unable to close this ticket."
+            );
+        }
+    }
+);
+
+
+/* --------------------------------------------------
+   REOPEN TICKET
+-------------------------------------------------- */
+
+app.post(
+    "/dashboard/server/:guildId/tickets/:ticketId/reopen",
+    requireLogin,
+    async (req, res) => {
+
+        try {
+
+            const { guildId, ticketId } = req.params;
+
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
+
+            await db.query(
+                `
+                UPDATE tickets
+                SET status = 'open'
+                WHERE id = $1
+                AND guild_id = $2
+                AND status = 'closed'
+                `,
+                [ticketId, guildId]
+            );
+
+            res.redirect(
+                `/dashboard/server/${encodeURIComponent(
+                    guildId
+                )}/tickets/${encodeURIComponent(
+                    ticketId
+                )}`
+            );
+
+        } catch (error) {
+
+            console.error(
+                "❌ Reopen ticket error:",
+                error
+            );
+
+            res.status(500).send(
+                "Unable to reopen this ticket."
+            );
+        }
+    }
+);
+
+
+/* --------------------------------------------------
+   SAVE ANSWER
+-------------------------------------------------- */
+
+app.post(
+    "/dashboard/server/:guildId/tickets/:ticketId/save-answer",
+    requireLogin,
+    async (req, res) => {
+
+        try {
+
+            const { guildId, ticketId } = req.params;
+
+            const guild = getManageableGuild(req, guildId);
+
+            if (!guild) {
+                return res.status(403).send("Access denied.");
+            }
+
+            const answer = (req.body.answer || "").trim();
+
+            if (!answer) {
+                return res.status(400).send(
+                    "Answer cannot be empty."
+                );
+            }
+
+            const ticketResult = await db.query(
+                `
+                SELECT
+                    id,
+                    guild_id
+                FROM tickets
+                WHERE id = $1
+                AND guild_id = $2
+                LIMIT 1
+                `,
+                [ticketId, guildId]
+            );
+
+            if (ticketResult.rows.length === 0) {
+                return res.status(404).send(
+                    "Ticket not found."
+                );
+            }
 
             await db.query(
                 `
@@ -1275,509 +2971,245 @@ app.post(
                 `,
                 [
                     guildId,
-                    title,
-                    content
+                    `Approved answer from Ticket #${ticketId}`,
+                    answer
                 ]
             );
 
-            console.log(
-                `🧠 Knowledge added to ${guild.name}: ${title}`
-            );
-
             res.redirect(
-                `/dashboard/server/${guildId}/knowledge`
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Failed to add knowledge:",
-                error.message
-            );
-
-            res.status(500).send(`
-                <h1>Database Error</h1>
-
-                <p>
-                    Could not save this knowledge entry.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
-        }
-    }
-);
-
-// =================================
-// KNOWLEDGE — EDIT
-// =================================
-
-app.post(
-    "/dashboard/server/:guildId/knowledge/:knowledgeId/edit",
-    requireLogin,
-    async (req, res) => {
-
-        const guildId = req.params.guildId;
-        const knowledgeId = req.params.knowledgeId;
-
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
-
-        if (!guild) {
-            return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
-            `);
-        }
-
-        const title = String(
-            req.body.title || ""
-        ).trim();
-
-        const content = String(
-            req.body.content || ""
-        ).trim();
-
-        if (!title || !content) {
-            return res.status(400).send(`
-                <h1>Invalid Knowledge</h1>
-
-                <p>
-                    Title and content are required.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
-        }
-
-        try {
-
-            const result = await db.query(
-                `
-                UPDATE knowledge
-                SET
-                    title = $1,
-                    content = $2
-                WHERE
-                    id = $3
-                    AND guild_id = $4
-                RETURNING id
-                `,
-                [
-                    title,
-                    content,
-                    knowledgeId,
+                `/dashboard/server/${encodeURIComponent(
                     guildId
-                ]
-            );
-
-            if (result.rowCount === 0) {
-                return res.status(404).send(`
-                    <h1>Knowledge Not Found</h1>
-
-                    <p>
-                        That knowledge entry does not exist
-                        in this server.
-                    </p>
-
-                    <a href="/dashboard/server/${guildId}/knowledge">
-                        Back to knowledge
-                    </a>
-                `);
-            }
-
-            console.log(
-                `✏️ Knowledge ${knowledgeId} edited in ${guild.name}`
-            );
-
-            res.redirect(
-                `/dashboard/server/${guildId}/knowledge`
+                )}/tickets/${encodeURIComponent(
+                    ticketId
+                )}`
             );
 
         } catch (error) {
 
             console.error(
-                "❌ Failed to edit knowledge:",
-                error.message
+                "❌ Save answer error:",
+                error
             );
 
-            res.status(500).send(`
-                <h1>Database Error</h1>
-
-                <p>
-                    Could not update this knowledge entry.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
+            res.status(500).send(
+                "Unable to save this answer."
+            );
         }
     }
 );
+ /* --------------------------------------------------
+    ERROR HANDLING
+ -------------------------------------------------- */
 
-// =================================
-// KNOWLEDGE — DELETE
-// =================================
+app.use((req, res) => {
+    res.status(404).send(`
+<!DOCTYPE html>
+<html lang="en">
 
-app.post(
-    "/dashboard/server/:guildId/knowledge/:knowledgeId/delete",
-    requireLogin,
-    async (req, res) => {
+<head>
+    <meta charset="UTF-8">
 
-        const guildId = req.params.guildId;
-        const knowledgeId = req.params.knowledgeId;
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
+    <title>Page Not Found - Resolve</title>
 
-        if (!guild) {
-            return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
-            `);
+    <style>
+        * {
+            box-sizing: border-box;
         }
 
-        try {
+        body {
+            margin: 0;
+            min-height: 100vh;
 
-            const result = await db.query(
-                `
-                DELETE FROM knowledge
-                WHERE
-                    id = $1
-                    AND guild_id = $2
-                RETURNING id, title
-                `,
-                [
-                    knowledgeId,
-                    guildId
-                ]
-            );
+            display: flex;
+            align-items: center;
+            justify-content: center;
 
-            if (result.rowCount === 0) {
-                return res.status(404).send(`
-                    <h1>Knowledge Not Found</h1>
+            background: #0f1117;
+            color: white;
 
-                    <p>
-                        That knowledge entry does not exist
-                        in this server.
-                    </p>
-
-                    <a href="/dashboard/server/${guildId}/knowledge">
-                        Back to knowledge
-                    </a>
-                `);
-            }
-
-            console.log(
-                `🗑️ Knowledge deleted from ${guild.name}: ${result.rows[0].title}`
-            );
-
-            res.redirect(
-                `/dashboard/server/${guildId}/knowledge`
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Failed to delete knowledge:",
-                error.message
-            );
-
-            res.status(500).send(`
-                <h1>Database Error</h1>
-
-                <p>
-                    Could not delete this knowledge entry.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
-        }
-    }
-);
-
-// =================================
-// KNOWLEDGE — TOGGLE APPROVAL
-// =================================
-
-app.post(
-    "/dashboard/server/:guildId/knowledge/:knowledgeId/toggle-approved",
-    requireLogin,
-    async (req, res) => {
-
-        const guildId = req.params.guildId;
-        const knowledgeId = req.params.knowledgeId;
-
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
-
-        if (!guild) {
-            return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
-            `);
+            font-family: Arial, sans-serif;
         }
 
-        try {
+        .box {
+            width: 90%;
+            max-width: 500px;
 
-            const result = await db.query(
-                `
-                UPDATE knowledge
-                SET approved = NOT approved
-                WHERE
-                    id = $1
-                    AND guild_id = $2
-                RETURNING id, title, approved
-                `,
-                [
-                    knowledgeId,
-                    guildId
-                ]
-            );
+            background: #181b24;
+            border: 1px solid #292e3a;
+            border-radius: 16px;
 
-            if (result.rowCount === 0) {
-                return res.status(404).send(`
-                    <h1>Knowledge Not Found</h1>
+            padding: 35px;
 
-                    <a href="/dashboard/server/${guildId}/knowledge">
-                        Back to knowledge
-                    </a>
-                `);
-            }
-
-            console.log(
-                `🔄 Knowledge ${knowledgeId} approval changed to ${result.rows[0].approved} in ${guild.name}`
-            );
-
-            res.redirect(
-                `/dashboard/server/${guildId}/knowledge`
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Failed to toggle knowledge approval:",
-                error.message
-            );
-
-            res.status(500).send(`
-                <h1>Database Error</h1>
-
-                <p>
-                    Could not change the approval status.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
-        }
-    }
-);
-
-// =================================
-// KNOWLEDGE — BULK DELETE
-// =================================
-
-app.post(
-    "/dashboard/server/:guildId/knowledge/bulk-delete",
-    requireLogin,
-    async (req, res) => {
-
-        const guildId = req.params.guildId;
-
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
-
-        if (!guild) {
-            return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
-            `);
+            text-align: center;
         }
 
-        let ids = req.body.ids || [];
-
-        if (!Array.isArray(ids)) {
-            ids = [ids];
+        h1 {
+            margin-top: 0;
+            font-size: 30px;
         }
 
-        ids = ids
-            .map((id) => String(id).trim())
-            .filter((id) => /^\d+$/.test(id));
-
-        if (ids.length === 0) {
-            return res.redirect(
-                `/dashboard/server/${guildId}/knowledge`
-            );
+        p {
+            color: #9ca3af;
+            line-height: 1.6;
         }
 
-        try {
+        a {
+            display: inline-block;
 
-            const result = await db.query(
-                `
-                DELETE FROM knowledge
-                WHERE
-                    guild_id = $1
-                    AND id = ANY($2::int[])
-                RETURNING id, title
-                `,
-                [
-                    guildId,
-                    ids
-                ]
-            );
+            margin-top: 15px;
 
-            console.log(
-                `🗑️ Bulk deleted ${result.rowCount} knowledge entries from ${guild.name}`
-            );
+            padding: 11px 18px;
 
-            res.redirect(
-                `/dashboard/server/${guildId}/knowledge`
-            );
+            border-radius: 8px;
 
-        } catch (error) {
+            background: #5865f2;
+            color: white;
 
-            console.error(
-                "❌ Failed to bulk delete knowledge:",
-                error.message
-            );
-
-            res.status(500).send(`
-                <h1>Database Error</h1>
-
-                <p>
-                    Could not delete the selected knowledge entries.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
-        }
-    }
-);
-
-// =================================
-// KNOWLEDGE — DELETE ALL
-// =================================
-
-app.post(
-    "/dashboard/server/:guildId/knowledge/delete-all",
-    requireLogin,
-    async (req, res) => {
-
-        const guildId = req.params.guildId;
-
-        const guild = getManageableGuild(
-            req,
-            guildId
-        );
-
-        if (!guild) {
-            return res.status(403).send(`
-                <h1>Access Denied</h1>
-                <a href="/dashboard">
-                    Back to servers
-                </a>
-            `);
+            text-decoration: none;
+            font-weight: bold;
         }
 
-        try {
-
-            const result = await db.query(
-                `
-                DELETE FROM knowledge
-                WHERE guild_id = $1
-                RETURNING id, title
-                `,
-                [guildId]
-            );
-
-            console.log(
-                `🗑️ Deleted ALL knowledge (${result.rowCount} entries) from ${guild.name}`
-            );
-
-            res.redirect(
-                `/dashboard/server/${guildId}/knowledge`
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Failed to delete all knowledge:",
-                error.message
-            );
-
-            res.status(500).send(`
-                <h1>Database Error</h1>
-
-                <p>
-                    Could not delete all knowledge entries.
-                </p>
-
-                <a href="/dashboard/server/${guildId}/knowledge">
-                    Back to knowledge
-                </a>
-            `);
+        a:hover {
+            background: #4752c4;
         }
-    }
-);
+    </style>
+</head>
 
-// =================================
-// LOGOUT
-// =================================
+<body>
 
-app.get("/logout", (req, res) => {
+    <div class="box">
 
-    req.session.destroy((error) => {
+        <h1>
+            404 — Page Not Found
+        </h1>
 
-        if (error) {
-            console.error(
-                "❌ Logout error:",
-                error.message
-            );
-        }
+        <p>
+            The page you're looking for doesn't exist
+            or may have been moved.
+        </p>
 
-        res.redirect("/");
-    });
+        <a href="/dashboard">
+            Return to Dashboard
+        </a>
 
+    </div>
+
+</body>
+
+</html>
+    `);
 });
 
-// =================================
-// START SERVER
-// =================================
 
+/* --------------------------------------------------
+   GLOBAL ERROR HANDLER
+-------------------------------------------------- */
+
+app.use((error, req, res, next) => {
+
+    console.error(
+        "❌ Unhandled dashboard error:",
+        error
+    );
+
+    if (res.headersSent) {
+        return next(error);
+    }
+
+    res.status(500).send(`
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Resolve Error</title>
+
+    <style>
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            background: #0f1117;
+            color: white;
+
+            font-family: Arial, sans-serif;
+        }
+
+        .box {
+            width: 90%;
+            max-width: 500px;
+
+            background: #181b24;
+
+            border: 1px solid #292e3a;
+            border-radius: 16px;
+
+            padding: 35px;
+
+            text-align: center;
+        }
+
+        h1 {
+            margin-top: 0;
+        }
+
+        p {
+            color: #9ca3af;
+            line-height: 1.6;
+        }
+
+        a {
+            color: #5865f2;
+            text-decoration: none;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <div class="box">
+
+        <h1>
+            Something went wrong
+        </h1>
+
+        <p>
+            Resolve encountered an unexpected error
+            while loading this page.
+        </p>
+
+        <a href="/dashboard">
+            Return to Dashboard
+        </a>
+
+    </div>
+
+</body>
+
+</html>
+    `);
+});
 app.listen(PORT, () => {
-
-    console.log("=================================");
-    console.log("🚀 Resolve Dashboard");
-    console.log(`🌐 http://localhost:${PORT}`);
-    console.log("🗄️ PostgreSQL enabled");
-    console.log("🧠 Knowledge management enabled");
-    console.log("=================================");
-
+    console.log(
+        `🚀 Resolve Dashboard running on port ${PORT}`
+    );
 });
