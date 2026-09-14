@@ -40,7 +40,7 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET;
 
 const REDIRECT_URI =
     process.env.REDIRECT_URI ||
-    "http://localhost:3000/auth/discord/callback";
+    "https://resolve-dashboard.onrender.com/auth/discord/callback";
 
 // =================================
 // AUTH
