@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Knowledge | Resolve</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #0b0d16;
+            --panel: #151827;
+            --panel-light: #1b1e31;
+            --border: rgba(255,255,255,0.08);
+
+            --text: #f5f7ff;
+            --muted: #9299ae;
+
+            --purple: #8b7cff;
+            --blue: #5de0ff;
+
+            --green: #62e6a8;
+            --red: #ff6878;
+            --yellow: #ffd166;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+
+            color: var(--text);
+
+            font-family:
+                Inter,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Arial,
+                sans-serif;
+
+            background:
+                radial-gradient(
+                    circle at 10% 10%,
+                    rgba(124,92,255,0.20),
+                    transparent 35%
+                ),
+                radial-gradient(
+                    circle at 90% 80%,
+                    rgba(0,200,255,0.09),
+                    transparent 35%
+                ),
+                var(--bg);
+        }
+
+        button,
+        input,
+        textarea {
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        /* =========================
+           NAVBAR
+        ========================= */
+
+        .navbar {
+            height: 72px;
+
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+            padding: 0 30px;
+
+            background:
+                rgba(17,20,34,0.88);
+
+            border-bottom:
+                1px solid var(--border);
+
+            backdrop-filter: blur(18px);
+
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .brand {
+            font-size: 25px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+
+        .brand span {
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--purple),
+                    var(--blue)
+                );
+
+            background-clip: text;
+-webkit-background-clip: text;
+-webkit-text-fill-color: transparent;
+        }
+
+        .server-link {
+            color: var(--muted);
+            text-decoration: none;
+
+            font-size: 14px;
+
+            transition: color 0.2s;
+        }
+
+        .server-link:hover {
+            color: white;
+        }
+
+        /* =========================
+           MAIN
+        ========================= */
+
+        .container {
+            max-width: 1250px;
+
+            margin: 0 auto;
+
+            padding:
+                42px 25px 70px;
+        }
+
+        .back {
+            display: inline-block;
+
+            color: var(--muted);
+            text-decoration: none;
+
+            margin-bottom: 25px;
+
+            font-size: 14px;
+        }
+
+        .back:hover {
+            color: white;
+        }
+
+        .header {
+            display: flex;
+
+            justify-content: space-between;
+            align-items: flex-end;
+
+            gap: 20px;
+
+            margin-bottom: 30px;
+        }
+
+        .eyebrow {
+            color: var(--purple);
+
+            font-size: 12px;
+            font-weight: 800;
+
+            text-transform: uppercase;
+
+            letter-spacing: 1.5px;
+
+            margin-bottom: 8px;
+        }
+
+        h1 {
+            margin: 0;
+
+            font-size: 40px;
+
+            letter-spacing: -1.5px;
+        }
+
+        .subtitle {
+            color: var(--muted);
+
+            margin-top: 9px;
+
+            line-height: 1.5;
+        }
+
+        /* =========================
+           BUTTONS
+        ========================= */
+
+        .button {
+            border: 0;
+
+            border-radius: 10px;
+
+            padding:
+                11px 16px;
+
+            font-weight: 700;
+
+            color: white;
+
+            transition:
+                transform 0.15s,
+                opacity 0.15s,
+                box-shadow 0.15s;
+        }
+
+        .button:hover {
+            transform: translateY(-1px);
+        }
+
+        .button-primary {
+            background:
+                linear-gradient(
+                    135deg,
+                    #7c5cff,
+                    #5f8cff
+                );
+
+            box-shadow:
+                0 8px 25px
+                rgba(124,92,255,0.20);
+        }
+
+        .button-secondary {
+            background:
+                rgba(255,255,255,0.07);
+
+            border:
+                1px solid var(--border);
+        }
+
+        .button-danger {
+            background:
+                rgba(255,80,100,0.13);
+
+            color: #ff7c89;
+
+            border:
+                1px solid rgba(255,80,100,0.2);
+        }
+
+        .button-success {
+            background:
+                rgba(98,230,168,0.12);
+
+            color: var(--green);
+
+            border:
+                1px solid rgba(98,230,168,0.2);
+        }
+
+        .button-warning {
+            background:
+                rgba(255,209,102,0.12);
+
+            color: var(--yellow);
+
+            border:
+                1px solid rgba(255,209,102,0.2);
+        }
+
+        /* =========================
+           STATS
+        ========================= */
+
+        .stats {
+            display: grid;
+
+            grid-template-columns:
+                repeat(3, 1fr);
+
+            gap: 15px;
+
+            margin-bottom: 20px;
+        }
+
+        .stat {
+            padding: 20px;
+
+            background:
+                rgba(21,24,40,0.88);
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 15px;
+        }
+
+        .stat-label {
+            color: var(--muted);
+
+            font-size: 13px;
+
+            margin-bottom: 7px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+
+            font-weight: 800;
+        }
+
+        /* =========================
+           TOOLBAR
+        ========================= */
+
+        .toolbar {
+            display: flex;
+
+            align-items: center;
+
+            gap: 10px;
+
+            flex-wrap: wrap;
+
+            padding: 15px;
+
+            background:
+                rgba(21,24,40,0.88);
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 15px;
+
+            margin-bottom: 15px;
+        }
+
+        .search {
+            flex: 1;
+
+            min-width: 220px;
+
+            padding:
+                11px 14px;
+
+            color: white;
+
+            background:
+                rgba(255,255,255,0.05);
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 9px;
+
+            outline: none;
+        }
+
+        .search:focus {
+            border-color:
+                rgba(139,124,255,0.65);
+
+            box-shadow:
+                0 0 0 3px
+                rgba(139,124,255,0.08);
+        }
+
+        .selection-info {
+            color: var(--muted);
+
+            font-size: 13px;
+
+            margin-left: auto;
+        }
+
+        /* =========================
+           KNOWLEDGE PANEL
+        ========================= */
+
+        .panel {
+            overflow: hidden;
+
+            background:
+                rgba(21,24,40,0.90);
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 18px;
+        }
+
+        .panel-header {
+            display: flex;
+
+            justify-content: space-between;
+            align-items: center;
+
+            gap: 15px;
+
+            padding: 17px 20px;
+
+            border-bottom:
+                1px solid var(--border);
+        }
+
+        .panel-title {
+            font-weight: 800;
+        }
+
+        .select-all {
+            display: flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            color: var(--muted);
+
+            font-size: 13px;
+        }
+
+        input[type="checkbox"] {
+            width: 17px;
+            height: 17px;
+
+            accent-color: var(--purple);
+        }
+
+        /* =========================
+           KNOWLEDGE CARDS
+        ========================= */
+
+        .knowledge-list {
+            display: flex;
+
+            flex-direction: column;
+        }
+
+        .knowledge-item {
+            padding: 20px;
+
+            border-bottom:
+                1px solid var(--border);
+
+            transition:
+                background 0.15s;
+        }
+
+        .knowledge-item:last-child {
+            border-bottom: 0;
+        }
+
+        .knowledge-item:hover {
+            background:
+                rgba(255,255,255,0.018);
+        }
+
+        .knowledge-main {
+            display: grid;
+
+            grid-template-columns:
+                auto 1fr auto;
+
+            align-items: start;
+
+            gap: 15px;
+        }
+
+        .knowledge-check {
+            padding-top: 3px;
+        }
+
+        .knowledge-content {
+            min-width: 0;
+        }
+
+        .knowledge-title-row {
+            display: flex;
+
+            align-items: center;
+
+            gap: 9px;
+
+            flex-wrap: wrap;
+
+            margin-bottom: 8px;
+        }
+
+        .knowledge-title {
+            font-size: 17px;
+
+            font-weight: 750;
+
+            word-break: break-word;
+        }
+
+        .badge {
+            display: inline-flex;
+
+            align-items: center;
+
+            padding:
+                4px 8px;
+
+            border-radius: 999px;
+
+            font-size: 11px;
+
+            font-weight: 800;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.3px;
+        }
+
+        .badge-approved {
+            color: var(--green);
+
+            background:
+                rgba(98,230,168,0.10);
+
+            border:
+                1px solid rgba(98,230,168,0.18);
+        }
+
+        .badge-pending {
+            color: var(--yellow);
+
+            background:
+                rgba(255,209,102,0.10);
+
+            border:
+                1px solid rgba(255,209,102,0.18);
+        }
+
+        .badge-source {
+            color: #9fa8c0;
+
+            background:
+                rgba(255,255,255,0.05);
+
+            border:
+                1px solid rgba(255,255,255,0.07);
+        }
+
+        .knowledge-text {
+            color: #aeb4c7;
+
+            font-size: 14px;
+
+            line-height: 1.6;
+
+            white-space: pre-wrap;
+
+            word-break: break-word;
+
+            max-width: 900px;
+
+            display: -webkit-box;
+
+            line-clamp: 5;
+-webkit-line-clamp: 5;
+
+            -webkit-box-orient: vertical;
+
+            overflow: hidden;
+        }
+
+        .knowledge-meta {
+            display: flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            flex-wrap: wrap;
+
+            margin-top: 13px;
+
+            color: #727b94;
+
+            font-size: 12px;
+        }
+
+        .knowledge-actions {
+            display: flex;
+
+            align-items: center;
+
+            gap: 7px;
+
+            flex-wrap: wrap;
+
+            justify-content: flex-end;
+        }
+
+        .small-button {
+            border: 1px solid var(--border);
+
+            background:
+                rgba(255,255,255,0.05);
+
+            color: #dce0ec;
+
+            border-radius: 8px;
+
+            padding:
+                8px 10px;
+
+            font-size: 12px;
+
+            font-weight: 700;
+
+            white-space: nowrap;
+        }
+
+        .small-button:hover {
+            background:
+                rgba(255,255,255,0.09);
+        }
+
+        .small-button.delete {
+            color: #ff7b88;
+
+            border-color:
+                rgba(255,80,100,0.16);
+
+            background:
+                rgba(255,80,100,0.07);
+        }
+
+        .small-button.approve {
+            color: var(--green);
+
+            border-color:
+                rgba(98,230,168,0.16);
+
+            background:
+                rgba(98,230,168,0.07);
+        }
+
+        .small-button.unapprove {
+            color: var(--yellow);
+
+            border-color:
+                rgba(255,209,102,0.16);
+
+            background:
+                rgba(255,209,102,0.07);
+        }
+
+        /* =========================
+           EMPTY
+        ========================= */
+
+        .empty {
+            padding: 70px 25px;
+
+            text-align: center;
+
+            color: var(--muted);
+        }
+
+        .empty-icon {
+            font-size: 42px;
+
+            margin-bottom: 12px;
+        }
+
+        .empty h2 {
+            color: white;
+
+            margin:
+                0 0 8px;
+        }
+
+        .empty p {
+            margin:
+                0 auto 20px;
+
+            max-width: 500px;
+
+            line-height: 1.6;
+        }
+
+        /* =========================
+           MODAL
+        ========================= */
+
+        .modal {
+            position: fixed;
+
+            inset: 0;
+
+            z-index: 100;
+
+            display: none;
+
+            align-items: center;
+
+            justify-content: center;
+
+            padding: 20px;
+
+            background:
+                rgba(4,5,10,0.72);
+
+            backdrop-filter: blur(8px);
+        }
+
+        .modal.open {
+            display: flex;
+        }
+
+        .modal-card {
+            width: 100%;
+
+            max-width: 650px;
+
+            max-height:
+                calc(100vh - 40px);
+
+            overflow-y: auto;
+
+            background:
+                #151827;
+
+            border:
+                1px solid rgba(255,255,255,0.10);
+
+            border-radius: 18px;
+
+            box-shadow:
+                0 30px 100px
+                rgba(0,0,0,0.55);
+        }
+
+        .modal-header {
+            display: flex;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            padding:
+                20px;
+
+            border-bottom:
+                1px solid var(--border);
+        }
+
+        .modal-header h2 {
+            margin: 0;
+
+            font-size: 20px;
+        }
+
+        .close {
+            width: 34px;
+            height: 34px;
+
+            border: 0;
+
+            border-radius: 8px;
+
+            color: #aab1c5;
+
+            background:
+                rgba(255,255,255,0.06);
+
+            font-size: 20px;
+        }
+
+        .close:hover {
+            color: white;
+
+            background:
+                rgba(255,255,255,0.10);
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .field {
+            margin-bottom: 17px;
+        }
+
+        .field:last-child {
+            margin-bottom: 0;
+        }
+
+        .field label {
+            display: block;
+
+            color: #dfe3ef;
+
+            font-size: 13px;
+
+            font-weight: 700;
+
+            margin-bottom: 8px;
+        }
+
+        .field input,
+        .field textarea {
+            width: 100%;
+
+            color: white;
+
+            background:
+                rgba(255,255,255,0.045);
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 10px;
+
+            outline: none;
+        }
+
+        .field input {
+            padding:
+                12px 13px;
+        }
+
+        .field textarea {
+            min-height: 180px;
+
+            resize: vertical;
+
+            padding:
+                12px 13px;
+
+            line-height: 1.5;
+        }
+
+        .field input:focus,
+        .field textarea:focus {
+            border-color:
+                rgba(139,124,255,0.65);
+
+            box-shadow:
+                0 0 0 3px
+                rgba(139,124,255,0.08);
+        }
+
+        .modal-footer {
+            display: flex;
+
+            justify-content: flex-end;
+
+            gap: 9px;
+
+            padding:
+                18px 20px;
+
+            border-top:
+                1px solid var(--border);
+        }
+
+        /* =========================
+           RESPONSIVE
+        ========================= */
+
+        @media (max-width: 850px) {
+
+            .header {
+                align-items: flex-start;
+
+                flex-direction: column;
+            }
+
+            .stats {
+                grid-template-columns:
+                    1fr;
+            }
+
+            .knowledge-main {
+                grid-template-columns:
+                    auto 1fr;
+            }
+
+            .knowledge-actions {
+                grid-column: 2;
+
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 600px) {
+
+            .navbar {
+                padding: 0 18px;
+            }
+
+            .container {
+                padding:
+                    32px 15px 60px;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            .toolbar {
+                align-items: stretch;
+            }
+
+            .search {
+                min-width: 100%;
+            }
+
+            .selection-info {
+                margin-left: 0;
+
+                width: 100%;
+            }
+
+            .knowledge-main {
+                grid-template-columns:
+                    auto 1fr;
+            }
+
+            .knowledge-actions {
+                grid-column: 2;
+            }
+
+            .small-button {
+                padding:
+                    8px 9px;
+            }
+        }
+
+    </style>
+
+</head>
+
+<body data-guild-id="<%= guild.id %>">
+
+<nav class="navbar">
+
+    <div class="brand">
+        <span>R</span>esolve
+    </div>
+
+    <a
+        class="server-link"
+        href="/dashboard/server/<%= guild.id %>"
+    >
+        ← <%= guild.name %>
+    </a>
+
+</nav>
+
+<main class="container">
+
+    <a
+        class="back"
+        href="/dashboard/server/<%= guild.id %>"
+    >
+        ← Back to server
+    </a>
+
+    <div class="header">
+
+        <div>
+
+            <div class="eyebrow">
+                Resolve Knowledge
+            </div>
+
+            <h1>
+                Knowledge
+            </h1>
+
+            <div class="subtitle">
+                Manage the information Resolve can use
+                when helping members in this server.
+            </div>
+
+        </div>
+
+        <button
+            class="button button-primary"
+            onclick="openAddModal()"
+        >
+            + Add Knowledge
+        </button>
+
+    </div>
+
+    <%
+        const total = knowledge.length;
+        const approvedCount =
+            knowledge.filter(item => item.approved).length;
+        const pendingCount =
+            total - approvedCount;
+    %>
+
+    <section class="stats">
+
+        <div class="stat">
+
+            <div class="stat-label">
+                Total Knowledge
+            </div>
+
+            <div class="stat-value">
+                <%= total %>
+            </div>
+
+        </div>
+
+        <div class="stat">
+
+            <div class="stat-label">
+                Approved
+            </div>
+
+            <div class="stat-value">
+                <%= approvedCount %>
+            </div>
+
+        </div>
+
+        <div class="stat">
+
+            <div class="stat-label">
+                Pending
+            </div>
+
+            <div class="stat-value">
+                <%= pendingCount %>
+            </div>
+
+        </div>
+
+    </section>
+
+    <section class="toolbar">
+
+        <input
+            id="search"
+            class="search"
+            type="search"
+            placeholder="Search knowledge..."
+            autocomplete="off"
+        >
+
+        <button
+            class="button button-secondary"
+            type="button"
+            onclick="selectVisible()"
+        >
+            Select Visible
+        </button>
+
+        <button
+            class="button button-secondary"
+            type="button"
+            onclick="clearSelection()"
+        >
+            Clear Selection
+        </button>
+
+        <button
+            id="bulkDeleteButton"
+            class="button button-danger"
+            type="button"
+            onclick="deleteSelected()"
+            disabled
+        >
+            Delete Selected
+        </button>
+
+        <button
+            class="button button-danger"
+            type="button"
+            onclick="deleteAll()"
+        >
+            Delete All
+        </button>
+
+        <div
+            id="selectionInfo"
+            class="selection-info"
+        >
+            0 selected
+        </div>
+
+    </section>
+
+    <section class="panel">
+
+        <div class="panel-header">
+
+            <div class="panel-title">
+                Knowledge Entries
+            </div>
+
+            <label class="select-all">
+
+                <input
+                    id="selectAll"
+                    type="checkbox"
+                    onchange="toggleAll(this.checked)"
+                >
+
+                Select all
+
+            </label>
+
+        </div>
+
+        <div
+            class="knowledge-list"
+            id="knowledgeList"
+        >
+
+            <% if (knowledge.length === 0) { %>
+
+                <div class="empty">
+
+                    <div class="empty-icon">
+                        🧠
+                    </div>
+
+                    <h2>
+                        No knowledge yet
+                    </h2>
+
+                    <p>
+                        Add your first knowledge entry so Resolve
+                        can start using server-specific information.
+                    </p>
+
+                    <button
+                        class="button button-primary"
+                        onclick="openAddModal()"
+                    >
+                        + Add Knowledge
+                    </button>
+
+                </div>
+
+            <% } else { %>
+
+                <% knowledge.forEach(item => { %>
+
+                    <article
+                        class="knowledge-item"
+                        data-search="<%= `${item.title} ${item.content}`.toLowerCase() %>"
+                    >
+
+                        <div class="knowledge-main">
+
+                            <div class="knowledge-check">
+
+                                <input
+                                    class="knowledge-checkbox"
+                                    type="checkbox"
+                                    value="<%= item.id %>"
+                                    onchange="updateSelection()"
+                                >
+
+                            </div>
+
+                            <div class="knowledge-content">
+
+                                <div class="knowledge-title-row">
+
+                                    <div class="knowledge-title">
+                                        <%= item.title %>
+                                    </div>
+
+                                    <% if (item.approved) { %>
+
+                                        <span class="badge badge-approved">
+                                            ✓ Approved
+                                        </span>
+
+                                    <% } else { %>
+
+                                        <span class="badge badge-pending">
+                                            Pending
+                                        </span>
+
+                                    <% } %>
+
+                                </div>
+
+                                <div class="knowledge-text">
+                                    <%= item.content %>
+                                </div>
+
+                                <div class="knowledge-meta">
+
+                                    <% if (item.source_channel_id) { %>
+
+                                        <span class="badge badge-source">
+                                            📢 Source:
+                                            <%= item.source_channel_id %>
+                                        </span>
+
+                                    <% } else { %>
+
+                                        <span class="badge badge-source">
+                                            📝 Dashboard Entry
+                                        </span>
+
+                                    <% } %>
+
+                                    <span>
+                                        ID #<%= item.id %>
+                                    </span>
+
+                                </div>
+
+                            </div>
+
+                            <div class="knowledge-actions">
+
+                                <button
+                                    class="small-button edit-button"
+                                    type="button"
+                                    data-id="<%= item.id %>"
+                                    data-title="<%= item.title.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;") %>"
+                                    data-content="<%= item.content.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;") %>"
+                                >
+                                    Edit
+                                </button>
+
+                                <form
+                                    method="POST"
+                                    action="/dashboard/server/<%= guild.id %>/knowledge/<%= item.id %>/toggle-approved"
+                                >
+
+                                    <button
+                                        class="small-button <%= item.approved ? "unapprove" : "approve" %>"
+                                        type="submit"
+                                    >
+                                        <%= item.approved
+                                            ? "Unapprove"
+                                            : "Approve" %>
+                                    </button>
+
+                                </form>
+
+                                <form
+                                    method="POST"
+                                    action="/dashboard/server/<%= guild.id %>/knowledge/<%= item.id %>/delete"
+                                    onsubmit="return confirm('Delete this knowledge entry?')"
+                                >
+
+                                    <button
+                                        class="small-button delete"
+                                        type="submit"
+                                    >
+                                        Delete
+                                    </button>
+
+                                </form>
+
+                            </div>
+
+                        </div>
+
+                    </article>
+
+                <% }); %>
+
+            <% } %>
+
+        </div>
+
+    </section>
+
+</main>
+
+<!-- =================================
+     ADD MODAL
+================================= -->
+
+<div
+    id="addModal"
+    class="modal"
+    onclick="closeModalOnBackdrop(event, 'addModal')"
+>
+
+    <div class="modal-card">
+
+        <div class="modal-header">
+
+            <h2>
+                Add Knowledge
+            </h2>
+
+            <button
+                class="close"
+                type="button"
+                onclick="closeModal('addModal')"
+            >
+                ×
+            </button>
+
+        </div>
+
+        <form
+            method="POST"
+            action="/dashboard/server/<%= guild.id %>/knowledge"
+        >
+
+            <div class="modal-body">
+
+                <div class="field">
+
+                    <label for="addTitle">
+                        Title
+                    </label>
+
+                    <input
+                        id="addTitle"
+                        name="title"
+                        type="text"
+                        maxlength="200"
+                        placeholder="Example: How do I open a ticket?"
+                        required
+                    >
+
+                </div>
+
+                <div class="field">
+
+                    <label for="addContent">
+                        Answer / Knowledge
+                    </label>
+
+                    <textarea
+                        id="addContent"
+                        name="content"
+                        placeholder="Write the information Resolve should know..."
+                        required
+                    ></textarea>
+
+                </div>
+
+            </div>
+
+            <div class="modal-footer">
+
+                <button
+                    class="button button-secondary"
+                    type="button"
+                    onclick="closeModal('addModal')"
+                >
+                    Cancel
+                </button>
+
+                <button
+                    class="button button-primary"
+                    type="submit"
+                >
+                    Save Knowledge
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>.

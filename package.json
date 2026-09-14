@@ -1,0 +1,26 @@
+{
+  "name": "resolve-dashboard",
+  "version": "1.0.0",
+  "description": "Resolve AI Support Discord Dashboard",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "keywords": [
+    "discord",
+    "resolve",
+    "dashboard",
+    "ai",
+    "support"
+  ],
+  "author": "Resolve",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "ejs": "^3.1.10",
+    "express": "^5.1.0",
+    "express-session": "^1.19.0",
+    "pg": "^8.23.0"
+  }
+}
