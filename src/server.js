@@ -7,6 +7,8 @@ const db = require("./database/db");
 
 const app = express();
 
+app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 3000;
 
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -30,10 +32,15 @@ app.use(express.json());
 app.use(
     session({
         secret: process.env.SESSION_SECRET || "resolve-dashboard-secret",
+
         resave: false,
+
         saveUninitialized: false,
+
         cookie: {
-            secure: process.env.NODE_ENV === "production",
+            secure: true,
+            httpOnly: true,
+            sameSite: "lax",
             maxAge: 1000 * 60 * 60 * 24 * 7
         }
     })
